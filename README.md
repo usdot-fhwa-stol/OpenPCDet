@@ -12,6 +12,9 @@ It is also the official code release of [`[PointRCNN]`](https://arxiv.org/abs/18
 * The codes of MPPNet has been supported. 
 * The multi-modal 3D detection approaches on Nuscenes have been supported. 
 
+## Changes from Upstream
+- Added instructions for setting up an OpenPCDet environment for the HASS support project
+
 ## Overview
 - [Changelog](#changelog)
 - [Design Pattern](#openpcdet-design-pattern)
