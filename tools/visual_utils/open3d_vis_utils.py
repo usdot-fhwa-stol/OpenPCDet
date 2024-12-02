@@ -107,8 +107,8 @@ def draw_box(vis, gt_boxes, color=(0, 1, 0), ref_labels=None, score=None):
             line_set.paint_uniform_color(color)
         else:
             line_set.paint_uniform_color(box_colormap[ref_labels[i]])
-
-        vis.add_geometry(line_set)
+        if ref_labels[i].cpu() == 2:  # Only visualize pedestrian detections
+            vis.add_geometry(line_set)
 
         # if score is not None:
         #     corners = box3d.get_box_points()
