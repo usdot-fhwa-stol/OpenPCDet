@@ -43,20 +43,27 @@ def main(x_step, y_step, timesteps, save_progress=False):
         # Optional progress visualization
         if save_progress:
             fig, ax = plt.subplots(1, timesteps)
-            for i in range(timesteps):
+            ax[0].plot(points[i][:,0], points[i][:,1], 'b.', label="LiDAR points")
+            ax[0].scatter(kmeans.cluster_centers_[:,0], kmeans.cluster_centers_[:,1], marker='*', color='r', label="Cluster Centers")
+            for j in range(len(kmeans.cluster_centers_)):
+                circle = Circle(kmeans.cluster_centers_[j], radius=radius, fill=False)
+                ax[0].add_patch(circle)
+            for i in range(1, timesteps):
                 ax[i].plot(points[i][:,0], points[i][:,1], 'b.')
                 ax[i].scatter(kmeans.cluster_centers_[:,0], kmeans.cluster_centers_[:,1], marker='*', color='r')
                 for j in range(len(kmeans.cluster_centers_)):
                     circle = Circle(kmeans.cluster_centers_[j], radius=radius, fill=False)
                     ax[i].add_patch(circle)
+            ax[0].set_ylabel("Elevation (deg)")
             for i in range(len(ax)):
                 a = ax[i]
                 a.set_xlim([0, 2])
                 a.set_ylim([0, 2])
                 a.set_xlabel("Azimuth (deg)")
-                a.set_ylabel("Elevation (deg)")
                 a.set_title("Time: %d" % (i))
                 a.set_aspect('equal')
+            fig.set_size_inches(10, 8)  # Adjust width and height as needed
+            fig.legend(loc="upper center", ncol=2, bbox_to_anchor=(0.5, 0.71))
             plt.savefig("%04d.png" % (count))
             plt.close()
             count += 1
@@ -66,20 +73,27 @@ def main(x_step, y_step, timesteps, save_progress=False):
         assert(check_all_points_have_cluster(points[i], kmeans, radius))
     # Show results
     fig, ax = plt.subplots(1, timesteps)
-    for i in range(timesteps):
+    ax[0].plot(points[i][:,0], points[i][:,1], 'b.', label="LiDAR points")
+    ax[0].scatter(kmeans.cluster_centers_[:,0], kmeans.cluster_centers_[:,1], marker='*', color='r', label="Cluster Centers")
+    for j in range(len(kmeans.cluster_centers_)):
+        circle = Circle(kmeans.cluster_centers_[j], radius=radius, fill=False)
+        ax[0].add_patch(circle)
+    for i in range(1, timesteps):
         ax[i].plot(points[i][:,0], points[i][:,1], 'b.')
         ax[i].scatter(kmeans.cluster_centers_[:,0], kmeans.cluster_centers_[:,1], marker='*', color='r')
         for j in range(len(kmeans.cluster_centers_)):
             circle = Circle(kmeans.cluster_centers_[j], radius=radius, fill=False)
             ax[i].add_patch(circle)
+    ax[0].set_ylabel("Elevation (deg)")
     for i in range(len(ax)):
         a = ax[i]
         a.set_xlim([0, 2])
         a.set_ylim([0, 2])
         a.set_xlabel("Azimuth (deg)")
-        a.set_ylabel("Elevation (deg)")
         a.set_title("Time: %d" % (i))
         a.set_aspect('equal')
+    fig.set_size_inches(10, 8)  # Adjust width and height as needed
+    fig.legend(loc="upper center", ncol=2, bbox_to_anchor=(0.5, 0.71))
     plt.show()
 
 
