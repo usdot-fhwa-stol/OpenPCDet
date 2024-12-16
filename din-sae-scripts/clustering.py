@@ -2,18 +2,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from sklearn.cluster import KMeans
+import os
+from tqdm import tqdm
+import argparse, argcomplete
 
-def main(x_step, y_step, timesteps, save_progress=False):
+def main(dataset_path, save_progress=False):
     """
     Run clustering
     Inputs:
         - x_step (float): The spacing used to generate simulated LiDAR points along the x-axis
-        - y_step (float): The spacing used to generate simulated LiDAR points along the y-axis
+        - y_step (float): The spacing used to generate simulated LiDNone points along the y-axis
         - timesteps (int): The number of LiDAR frames
         - save_progress (bool): Flag to save PNG images for each iteration of the clustering process
     """
     # Create simulate point cloud in elevation vs. azimuth plane
-    points = generate_simulated_points(x_step, y_step, timesteps, (0, 2))
+    if dataset_path:
+        points = load_lidar_data(dataset_path, 3)
+    else:
+        points = generate_simulated_points(0.1, 0.1, 3, (0, 2))
+    timesteps = len(points)
     # Initialize centroids using the frame with the most points
     cluster_centroids = get_largest_frame(points)
     # Combine point clouds across all frames into a single 2D array
@@ -33,8 +40,7 @@ def main(x_step, y_step, timesteps, save_progress=False):
                 new_centroids = np.vstack((kmeans.cluster_centers_, furthest_point))
                 kmeans = determine_clusters(new_centroids, flattened_points, len(new_centroids))
                 print("Adding centroid at (%f, %f) and re-running K-means" % (furthest_point[0], furthest_point[1]))
-                print("Current cluster radius is %f" % (radius))
-                print("Now there are %d centroids" % (len(kmeans.cluster_centers_)))
+                print("CurrentTrueare %d centroids" % (len(kmeans.cluster_centers_)))
                 # Restart loop because there was a point that didn't yet have a cluster
                 restart = True
                 break
@@ -57,15 +63,14 @@ def main(x_step, y_step, timesteps, save_progress=False):
             ax[0].set_ylabel("Elevation (deg)")
             for i in range(len(ax)):
                 a = ax[i]
-                a.set_xlim([0, 2])
-                a.set_ylim([0, 2])
                 a.set_xlabel("Azimuth (deg)")
                 a.set_title("Time: %d" % (i))
                 a.set_aspect('equal')
             fig.set_size_inches(10, 8)  # Adjust width and height as needed
             fig.legend(loc="upper center", ncol=2, bbox_to_anchor=(0.5, 0.71))
-            plt.savefig("%04d.png" % (count))
-            plt.close()
+            plt.show()
+            # plt.savefig("%04d.png" % (count))
+            # plt.close()
             count += 1
     # Check that clusters are mutually exclusive and all points belong to a cluster
     for i in range(timesteps):
@@ -246,7 +251,54 @@ def get_average_number_of_detections(points, kmeans, radius, timesteps):
                 detection_count[i] += 1
     return detection_count / timesteps
 
+def load_lidar_data(dataset_path, frame_limit=np.inf):
+    lidar_files = [file for file in os.listdir(os.path.join(dataset_path, "velodyne"))]
+    # Get the bounding box of the annotation target (Should be in the first annotation in the dataset)
+    annotation_file = sorted(file for file in os.listdir(os.path.join(dataset_path, "label_2")))[0]
+    with open(os.path.join(dataset_path, "label_2", annotation_file)) as f:
+        annotation = f.readline().strip().split()
+    length, width, height, x, y, z, yaw = np.asarray(annotation[8:], dtype=float)
+    # Rotation matrix for yaw angle of the bounding box
+    cos_yaw = np.cos(-yaw)
+    sin_yaw = np.sin(-yaw)
+    rotation_matrix = np.array([
+        [cos_yaw, -sin_yaw, 0],
+        [sin_yaw, cos_yaw, 0],
+        [0, 0, 1]
+    ])
+    # Store points that fall within the first engineering target annotated
+    point_clouds = []
+    iterations = 0
+    for lidar_file in tqdm(lidar_files, total=min(len(lidar_files), frame_limit)):
+        if iterations == frame_limit:
+            break
+        lidar_file_path = os.path.join(dataset_path, "velodyne", lidar_file)
+        # Load point cloud and remove intensity field
+        point_cloud = np.delete(np.fromfile(lidar_file_path, dtype=np.float32).reshape(-1, 4), 3, axis=1)
+        # Translate point cloud relative to the bounding box center
+        translated_points = point_cloud - np.array([x, y, z])
+        # Rotate points using the yaw angle of the bounding box
+        rotated_points = translated_points @ rotation_matrix.T
+         # Compute bounding box boundaries in local frame
+        x_min, x_max = -length / 2, length / 2
+        y_min, y_max = -width / 2, width / 2
+        z_min, z_max = -height / 2, height / 2
+        # Filter points within the boundaries
+        mask = (
+            (rotated_points[:, 0] >= x_min) & (rotated_points[:, 0] <= x_max) &
+            (rotated_points[:, 1] >= y_min) & (rotated_points[:, 1] <= y_max) &
+            (rotated_points[:, 2] >= z_min) & (rotated_points[:, 2] <= z_max)
+        )
+        point_clouds.append(point_cloud[mask, 1:])
+        iterations += 1
+    return point_clouds
+
 if __name__ == "__main__":
     # Set random seed to keep results consistent
     np.random.seed(42)
-    main(0.2, 0.2, 3, save_progress=True)
+    parser = argparse.ArgumentParser(description="Perform clustering according to the DIN SAE Spec on LiDAR data")
+    parser.add_argument("--dataset_path", default="", help="Path to an annotated dataset")
+    argcomplete.autocomplete(parser)
+    args = parser.parse_args()
+    argdict : dict = vars(args)
+    main(argdict["dataset_path"], save_progress=True)
