@@ -6,8 +6,10 @@ import os
 from pypcd4 import pypcd4
 from PIL import Image
 from tqdm import tqdm
+from scipy.spatial.transform import Rotation as R
+import yaml
 
-def cvat_to_openpcdet(pcd_path, json_path):
+def cvat_to_openpcdet(pcd_path, json_path, params_path):
     # Convert PCD files to BIN files
     ## Find all pcd files
     pcd_files = []
@@ -24,6 +26,11 @@ def cvat_to_openpcdet(pcd_path, json_path):
     ## Make bin_path directory
     if not (os.path.isdir("velodyne")):
         os.makedirs("velodyne")
+    
+    # Load the params file
+    with open(params_path, 'r') as file:
+        params_data = yaml.safe_load(file)
+    rot = R.from_euler("zyx", params_data["rotation"], degrees=True)
 
     ## Converting Process
     for pcd_file in tqdm(pcd_files, desc="Converting PCD files to BIN"):
@@ -35,20 +42,20 @@ def cvat_to_openpcdet(pcd_path, json_path):
         bin_file_name = "{:04d}.bin".format(int(pcd_file_number))
         bin_file_path = os.path.join("velodyne", bin_file_name)
         
-        ## Get data from pcd (x, y, z, intensity, ring, time)
+        ## Get data from pcd
         np_x = (np.array(pc.pc_data['x'], dtype=np.float32)).astype(np.float32)
         np_y = (np.array(pc.pc_data['y'], dtype=np.float32)).astype(np.float32)
         np_z = (np.array(pc.pc_data['z'], dtype=np.float32)).astype(np.float32)
         np_i = (np.ones(len(pc.pc_data['z']), dtype=np.float32).astype(np.float32))
-        #(np.array(pc.pc_data['intensity'], dtype=np.float32)).astype(np.float32)/256
-        # np_r = (np.array(pc.pc_data['ring'], dtype=np.float32)).astype(np.float32)
-        # np_t = (np.array(pc.pc_data['time'], dtype=np.float32)).astype(np.float32)
+
+        xyz = np.transpose(np.vstack((np_x, np_y, np_z)))
+        transformed_xyz = rot.apply(xyz)
 
         ## Stack all data    
-        points_32 = np.transpose(np.vstack((np_x, np_y, np_z, np_i)))
+        final_points = np.hstack((transformed_xyz, np.expand_dims(np_i, axis=1)))
 
         ## Save bin file            
-        points_32.tofile(bin_file_path)
+        final_points.tofile(bin_file_path)
 
     # Create annotations
     try:
@@ -69,10 +76,34 @@ def cvat_to_openpcdet(pcd_path, json_path):
             object_name = "Target" if annotation["label_id"] else "Pedestrian"
             object_center = annotation["position"]
             object_dims = annotation["scale"]
-            yaw_angle = annotation["rotation"][2]
+            # Apply rotation to bounding box
+            yaw_quaternion = R.from_euler("z", annotation["rotation"][2])
+            rotation_quaternion = rot * yaw_quaternion
+             # Compute the corners of the bounding box relative to the center
+            length, width, height = object_dims
+            box_corners = object_center + np.array([
+                [ length / 2,  width / 2,  height / 2],
+                [ length / 2,  width / 2, -height / 2],
+                [ length / 2, -width / 2,  height / 2],
+                [ length / 2, -width / 2, -height / 2],
+                [-length / 2,  width / 2,  height / 2],
+                [-length / 2,  width / 2, -height / 2],
+                [-length / 2, -width / 2,  height / 2],
+                [-length / 2, -width / 2, -height / 2]
+            ])
+            rotated_corners = rotation_quaternion.apply(box_corners)
+            # Convert corners back to original representation
+            rotated_center = np.mean(rotated_corners, axis=0)
+            dists = np.linalg.norm(rotated_corners[:, None, :] - rotated_corners[None, :, :], axis=-1)
+            length = np.max(dists[0:4, 0:4]) # Maximum distance between front corners
+            width = np.max(dists[4:8, 4:8])  # Maximum distance between back corners
+            height = np.max(dists[:, :])     # Maximum distance between top and bottom corners
+            front_corners = rotated_corners[:2, :2]  # Front two corners
+            dx, dy = front_corners[1] - front_corners[0]
+            yaw = np.arctan2(dy, dx)         # Yaw angle in radians
             annotation_string += "%s 0.0 0 0 0 0 50 50 %0.2f %0.2f %0.2f %0.2f %0.2f %0.2f %0.2f\n" % \
-                                (object_name, object_dims[0], object_dims[1], object_dims[2], 
-                                 object_center[0], object_center[1], object_center[2], yaw_angle)
+                                (object_name, height, width, length, 
+                                 rotated_center[0], rotated_center[1], rotated_center[2], yaw)
         with open(os.path.join("label_2", "{:04d}.txt".format(int(frame_name))), "w") as f:
             f.write(annotation_string)
     
@@ -113,7 +144,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert annotations from CVAT to the format needed for OpenPCDet")
     parser.add_argument("pcd_path", type=str, help="Path to directory containing PCD files")
     parser.add_argument("json_path", type=str, help="Path to Json file containing annotations from CVAT")
+    parser.add_argument("params_path", type=str, help="Path to params file for the LiDAR sensor")
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
     argdict : dict = vars(args)
-    cvat_to_openpcdet(argdict["pcd_path"], argdict["json_path"])
+    cvat_to_openpcdet(argdict["pcd_path"], argdict["json_path"], argdict["params_path"])
