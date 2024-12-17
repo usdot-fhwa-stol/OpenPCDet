@@ -30,7 +30,7 @@ def cvat_to_openpcdet(pcd_path, json_path, params_path):
     # Load the params file
     with open(params_path, 'r') as file:
         params_data = yaml.safe_load(file)
-    rot = R.from_euler("zyx", params_data["rotation"], degrees=True)
+    rot = R.from_euler("xyz", params_data["rotation"], degrees=True)
 
     ## Converting Process
     for pcd_file in tqdm(pcd_files, desc="Converting PCD files to BIN"):
@@ -39,7 +39,7 @@ def cvat_to_openpcdet(pcd_path, json_path, params_path):
 
         ## Generate bin file name
         pcd_file_number, _ = os.path.splitext(os.path.basename(pcd_file))
-        bin_file_name = "{:04d}.bin".format(int(pcd_file_number))
+        bin_file_name = "{:06d}.bin".format(int(pcd_file_number))
         bin_file_path = os.path.join("velodyne", bin_file_name)
         
         ## Get data from pcd
@@ -52,7 +52,7 @@ def cvat_to_openpcdet(pcd_path, json_path, params_path):
         transformed_xyz = rot.apply(xyz)
 
         ## Stack all data    
-        final_points = np.hstack((transformed_xyz, np.expand_dims(np_i, axis=1)))
+        final_points = np.hstack((transformed_xyz, np.expand_dims(np_i, axis=1)), dtype=np.float32)
 
         ## Save bin file            
         final_points.tofile(bin_file_path)
@@ -76,35 +76,14 @@ def cvat_to_openpcdet(pcd_path, json_path, params_path):
             object_name = "Target" if annotation["label_id"] else "Pedestrian"
             object_center = annotation["position"]
             object_dims = annotation["scale"]
+            yaw = annotation["rotation"][2]
             # Apply rotation to bounding box
-            yaw_quaternion = R.from_euler("z", annotation["rotation"][2])
-            rotation_quaternion = rot * yaw_quaternion
-             # Compute the corners of the bounding box relative to the center
             length, width, height = object_dims
-            box_corners = object_center + np.array([
-                [ length / 2,  width / 2,  height / 2],
-                [ length / 2,  width / 2, -height / 2],
-                [ length / 2, -width / 2,  height / 2],
-                [ length / 2, -width / 2, -height / 2],
-                [-length / 2,  width / 2,  height / 2],
-                [-length / 2,  width / 2, -height / 2],
-                [-length / 2, -width / 2,  height / 2],
-                [-length / 2, -width / 2, -height / 2]
-            ])
-            rotated_corners = rotation_quaternion.apply(box_corners)
-            # Convert corners back to original representation
-            rotated_center = np.mean(rotated_corners, axis=0)
-            dists = np.linalg.norm(rotated_corners[:, None, :] - rotated_corners[None, :, :], axis=-1)
-            length = np.max(dists[0:4, 0:4]) # Maximum distance between front corners
-            width = np.max(dists[4:8, 4:8])  # Maximum distance between back corners
-            height = np.max(dists[:, :])     # Maximum distance between top and bottom corners
-            front_corners = rotated_corners[:2, :2]  # Front two corners
-            dx, dy = front_corners[1] - front_corners[0]
-            yaw = np.arctan2(dy, dx)         # Yaw angle in radians
+            rotated_center = rot.apply(object_center)
             annotation_string += "%s 0.0 0 0 0 0 50 50 %0.2f %0.2f %0.2f %0.2f %0.2f %0.2f %0.2f\n" % \
                                 (object_name, height, width, length, 
-                                 rotated_center[0], rotated_center[1], rotated_center[2], yaw)
-        with open(os.path.join("label_2", "{:04d}.txt".format(int(frame_name))), "w") as f:
+                                 -rotated_center[1], -rotated_center[2], rotated_center[0], yaw)
+        with open(os.path.join("label_2", "{:06d}.txt".format(int(frame_name))), "w") as f:
             f.write(annotation_string)
     
     # Create Images and Calibrations
@@ -115,12 +94,12 @@ def cvat_to_openpcdet(pcd_path, json_path, params_path):
     
     for pcd_file in pcd_files:
         pcd_file_number, _ = os.path.splitext(os.path.basename(pcd_file))
-        image_file_name = "{:04d}.png".format(int(pcd_file_number))
+        image_file_name = "{:06d}.png".format(int(pcd_file_number))
         image_file_path = os.path.join("image_2", image_file_name)
         black_image = Image.new("RGB", (1242, 375), color=(0,0,0))
         black_image.save(image_file_path)
         
-        calib_file_name = "{:04d}.txt".format(int(pcd_file_number))
+        calib_file_name = "{:06d}.txt".format(int(pcd_file_number))
         calib_file_path = os.path.join("calib", calib_file_name)
 
         with open(calib_file_path, 'w') as f:
