@@ -9,7 +9,9 @@ from tqdm import tqdm
 from scipy.spatial.transform import Rotation as R
 import yaml
 
-def cvat_to_openpcdet(pcd_path, json_path, params_path):
+def cvat_to_openpcdet(pcd_path, json_path, params_path, dataset_root):
+    if not (os.path.isdir(dataset_root)):
+        os.makedirs(dataset_root)
     # Convert PCD files to BIN files
     ## Find all pcd files
     pcd_files = []
@@ -24,8 +26,8 @@ def cvat_to_openpcdet(pcd_path, json_path, params_path):
     pcd_files.sort()   
 
     ## Make bin_path directory
-    if not (os.path.isdir("velodyne")):
-        os.makedirs("velodyne")
+    if not (os.path.isdir(os.path.join(dataset_root, "velodyne"))):
+        os.makedirs(os.path.join(dataset_root, "velodyne"))
     
     # Load the params file
     with open(params_path, 'r') as file:
@@ -40,7 +42,7 @@ def cvat_to_openpcdet(pcd_path, json_path, params_path):
         ## Generate bin file name
         pcd_file_number, _ = os.path.splitext(os.path.basename(pcd_file))
         bin_file_name = "{:06d}.bin".format(int(pcd_file_number))
-        bin_file_path = os.path.join("velodyne", bin_file_name)
+        bin_file_path = os.path.join(dataset_root, "velodyne", bin_file_name)
         
         ## Get data from pcd
         np_x = (np.array(pc.pc_data['x'], dtype=np.float32)).astype(np.float32)
@@ -67,8 +69,8 @@ def cvat_to_openpcdet(pcd_path, json_path, params_path):
         print(f"Error: Failed to decode JSON. {e}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-    if not (os.path.isdir("label_2")):
-        os.makedirs("label_2")
+    if not (os.path.isdir(os.path.join(dataset_root, "label_2"))):
+        os.makedirs(os.path.join(dataset_root, "label_2"))
     for frame in frames:
         frame_name = frame["id"]
         annotation_string = ""
@@ -82,25 +84,25 @@ def cvat_to_openpcdet(pcd_path, json_path, params_path):
             rotated_center = rot.apply(object_center)
             annotation_string += "%s 0.0 0 0 0 0 50 50 %0.2f %0.2f %0.2f %0.2f %0.2f %0.2f %0.2f\n" % \
                                 (object_name, height, width, length, 
-                                 -rotated_center[1], -rotated_center[2], rotated_center[0], yaw)
-        with open(os.path.join("label_2", "{:06d}.txt".format(int(frame_name))), "w") as f:
+                                 -rotated_center[1], -rotated_center[2], rotated_center[0], -yaw)
+        with open(os.path.join(dataset_root, "label_2", "{:06d}.txt".format(int(frame_name))), "w") as f:
             f.write(annotation_string)
     
     # Create Images and Calibrations
-    if not (os.path.isdir("image_2")):
-        os.makedirs("image_2")
-    if not (os.path.isdir("calib")):
-        os.makedirs("calib")
+    if not (os.path.isdir(os.path.join(dataset_root, "image_2"))):
+        os.makedirs(os.path.join(dataset_root, "image_2"))
+    if not (os.path.isdir(os.path.join(dataset_root, "calib"))):
+        os.makedirs(os.path.join(dataset_root, "calib"))
     
     for pcd_file in pcd_files:
         pcd_file_number, _ = os.path.splitext(os.path.basename(pcd_file))
         image_file_name = "{:06d}.png".format(int(pcd_file_number))
-        image_file_path = os.path.join("image_2", image_file_name)
+        image_file_path = os.path.join(dataset_root, "image_2", image_file_name)
         black_image = Image.new("RGB", (1242, 375), color=(0,0,0))
         black_image.save(image_file_path)
         
         calib_file_name = "{:06d}.txt".format(int(pcd_file_number))
-        calib_file_path = os.path.join("calib", calib_file_name)
+        calib_file_path = os.path.join(dataset_root, "calib", calib_file_name)
 
         with open(calib_file_path, 'w') as f:
             calib = dict({
@@ -109,7 +111,7 @@ def cvat_to_openpcdet(pcd_path, json_path, params_path):
                 "P2" : np.eye(3,4).reshape((12,)),
                 "P3" : np.eye(3,4).reshape((12,)),
                 "R0_rect" : np.eye(3).reshape((9,)),
-                "Tr_velo_to_cam" : np.array([6.927964000000e-03, -9.999722000000e-01, -2.757829000000e-03, -2.457729000000e-02, -1.162982000000e-03, 2.749836000000e-03, -9.999955000000e-01, -6.127237000000e-02, 9.999753000000e-01, 6.931141000000e-03, -1.143899000000e-03, -3.321029000000e-01]),
+                "Tr_velo_to_cam" : np.array([0.0, -1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0]),
                 "Tr_imu_to_velo" : np.eye(3,4).reshape((12,))
             })
             for key, value in calib.items():
@@ -124,7 +126,8 @@ if __name__ == "__main__":
     parser.add_argument("pcd_path", type=str, help="Path to directory containing PCD files")
     parser.add_argument("json_path", type=str, help="Path to Json file containing annotations from CVAT")
     parser.add_argument("params_path", type=str, help="Path to params file for the LiDAR sensor")
+    parser.add_argument("dataset_root", type=str, help="Root directory to write dataset to")
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
     argdict : dict = vars(args)
-    cvat_to_openpcdet(argdict["pcd_path"], argdict["json_path"], argdict["params_path"])
+    cvat_to_openpcdet(argdict["pcd_path"], argdict["json_path"], argdict["params_path"], argdict["dataset_root"])
