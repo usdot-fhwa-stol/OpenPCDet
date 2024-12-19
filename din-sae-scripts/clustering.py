@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from sklearn.cluster import KMeans
+from scipy.spatial.transform import Rotation as R
+from scipy.spatial import KDTree
 import os
 from tqdm import tqdm
 import argparse, argcomplete
@@ -17,7 +19,7 @@ def main(dataset_path, save_progress=False):
     """
     # Create simulate point cloud in elevation vs. azimuth plane
     if dataset_path:
-        points = load_lidar_data(dataset_path, 3)
+        points = load_lidar_data(dataset_path)
     else:
         points = generate_simulated_points(0.1, 0.1, 3, (0, 2))
     timesteps = len(points)
@@ -25,80 +27,68 @@ def main(dataset_path, save_progress=False):
     cluster_centroids = get_largest_frame(points)
     # Combine point clouds across all frames into a single 2D array
     flattened_points = np.vstack(points)
+    # Get average spacing between points
+    average_distance = get_average_distance_between_points(points[0])
     # Run Kmeans clustering to tune the centroids
     kmeans = determine_clusters(cluster_centroids, flattened_points, len(cluster_centroids))
+    # new_centroids = merge_close_clusters(kmeans, average_distance * 0.8)
+    # kmeans = determine_clusters(new_centroids, flattened_points, len(new_centroids))
     count = 0  # Variable used for creating visualizatons
-    while True:
+    finished = False
+    while not finished:
         # Determine the largest cluster radius size possible given the current centroids
+        finished = True
         radius = determine_cluster_radius(kmeans)
+        print("Cluster radius is %f" % (radius))
         # Find the point furthest from a centroid
         furthest_point = get_furthest_point_from_cluster(flattened_points, kmeans)
-        restart = False
-        for i in range(timesteps):
-            # If there is a point that doesn't fit in a cluster, add a centroid where that point is and re-run Kmeans
-            if not check_all_points_have_cluster(points[i], kmeans, radius):
-                new_centroids = np.vstack((kmeans.cluster_centers_, furthest_point))
-                kmeans = determine_clusters(new_centroids, flattened_points, len(new_centroids))
-                print("Adding centroid at (%f, %f) and re-running K-means" % (furthest_point[0], furthest_point[1]))
-                print("CurrentTrueare %d centroids" % (len(kmeans.cluster_centers_)))
-                # Restart loop because there was a point that didn't yet have a cluster
-                restart = True
-                break
-        if not restart:
-            break
+        # If there is a point that doesn't fit in a cluster, add a centroid where that point is and re-run Kmeans
+        if not check_all_points_have_cluster(flattened_points, kmeans, radius):
+            new_centroids = np.vstack((kmeans.cluster_centers_, furthest_point))
+            kmeans = determine_clusters(new_centroids, flattened_points, len(new_centroids))
+            print("Adding centroid at (%f, %f) and re-running K-means" % (furthest_point[0], furthest_point[1]))
+            print("Now there are %d centroids" % (len(kmeans.cluster_centers_)))
+            # Restart loop because there was a point that didn't yet have a cluster
+            finished = False
         # Optional progress visualization
+        print("Iteration:", count)
         if save_progress:
-            fig, ax = plt.subplots(1, timesteps)
-            ax[0].plot(points[i][:,0], points[i][:,1], 'b.', label="LiDAR points")
-            ax[0].scatter(kmeans.cluster_centers_[:,0], kmeans.cluster_centers_[:,1], marker='*', color='r', label="Cluster Centers")
+            fig, ax = plt.subplots()
+            colors = plt.cm.viridis(np.linspace(0, 1, timesteps))
+            ax.plot(points[0][:,0], points[0][:,1], '.', c=colors[0], label="LiDAR points")
+            ax.scatter(kmeans.cluster_centers_[:,0], kmeans.cluster_centers_[:,1], marker='*', color='r', label="Cluster Centers")
             for j in range(len(kmeans.cluster_centers_)):
                 circle = Circle(kmeans.cluster_centers_[j], radius=radius, fill=False)
-                ax[0].add_patch(circle)
+                ax.add_patch(circle)
             for i in range(1, timesteps):
-                ax[i].plot(points[i][:,0], points[i][:,1], 'b.')
-                ax[i].scatter(kmeans.cluster_centers_[:,0], kmeans.cluster_centers_[:,1], marker='*', color='r')
-                for j in range(len(kmeans.cluster_centers_)):
-                    circle = Circle(kmeans.cluster_centers_[j], radius=radius, fill=False)
-                    ax[i].add_patch(circle)
-            ax[0].set_ylabel("Elevation (deg)")
-            for i in range(len(ax)):
-                a = ax[i]
-                a.set_xlabel("Azimuth (deg)")
-                a.set_title("Time: %d" % (i))
-                a.set_aspect('equal')
-            fig.set_size_inches(10, 8)  # Adjust width and height as needed
-            fig.legend(loc="upper center", ncol=2, bbox_to_anchor=(0.5, 0.71))
+                ax.plot(points[i][:,0], points[i][:,1], '.', c=colors[i])
+            ax.set_ylabel("Elevation (deg)")
+            ax.set_xlabel("Azimuth (deg)")
+            ax.set_title("Time: %d" % (i))
+            ax.set_aspect('equal')
+            ax.legend(loc="upper center", ncol=2)
+            plt.savefig("%04d.png" % (count))
             plt.show()
-            # plt.savefig("%04d.png" % (count))
-            # plt.close()
-            count += 1
+            plt.close()
+        count += 1
     # Check that clusters are mutually exclusive and all points belong to a cluster
-    for i in range(timesteps):
-        assert(check_clusters_are_mutually_exclusive(kmeans, radius))
-        assert(check_all_points_have_cluster(points[i], kmeans, radius))
+    print("Clusters are mutually exclusive:", check_clusters_are_mutually_exclusive(kmeans, radius))
+    print("All points have a cluster:", check_all_points_have_cluster(flattened_points, kmeans, radius))
     # Show results
-    fig, ax = plt.subplots(1, timesteps)
-    ax[0].plot(points[i][:,0], points[i][:,1], 'b.', label="LiDAR points")
-    ax[0].scatter(kmeans.cluster_centers_[:,0], kmeans.cluster_centers_[:,1], marker='*', color='r', label="Cluster Centers")
+    fig, ax = plt.subplots()
+    colors = plt.cm.viridis(np.linspace(0, 1, timesteps))
+    ax.plot(points[0][:,0], points[0][:,1], '.', c=colors[0], label="LiDAR points")
+    ax.scatter(kmeans.cluster_centers_[:,0], kmeans.cluster_centers_[:,1], marker='*', color='r', label="Cluster Centers")
     for j in range(len(kmeans.cluster_centers_)):
         circle = Circle(kmeans.cluster_centers_[j], radius=radius, fill=False)
-        ax[0].add_patch(circle)
+        ax.add_patch(circle)
     for i in range(1, timesteps):
-        ax[i].plot(points[i][:,0], points[i][:,1], 'b.')
-        ax[i].scatter(kmeans.cluster_centers_[:,0], kmeans.cluster_centers_[:,1], marker='*', color='r')
-        for j in range(len(kmeans.cluster_centers_)):
-            circle = Circle(kmeans.cluster_centers_[j], radius=radius, fill=False)
-            ax[i].add_patch(circle)
-    ax[0].set_ylabel("Elevation (deg)")
-    for i in range(len(ax)):
-        a = ax[i]
-        a.set_xlim([0, 2])
-        a.set_ylim([0, 2])
-        a.set_xlabel("Azimuth (deg)")
-        a.set_title("Time: %d" % (i))
-        a.set_aspect('equal')
-    fig.set_size_inches(10, 8)  # Adjust width and height as needed
-    fig.legend(loc="upper center", ncol=2, bbox_to_anchor=(0.5, 0.71))
+        ax.plot(points[i][:,0], points[i][:,1], '.', c=colors[i])
+    ax.set_ylabel("Elevation (deg)")
+    ax.set_xlabel("Azimuth (deg)")
+    ax.set_title("Time: %d" % (i))
+    ax.set_aspect('equal')
+    ax.legend(loc="upper center", ncol=2)
     plt.show()
 
 
@@ -195,10 +185,11 @@ def determine_cluster_radius(kmeans):
     Output: The cluster radius
     """
     diameter = np.inf
+    kdtree = KDTree(kmeans.cluster_centers_)
     for i in range(len(kmeans.cluster_centers_)):
-        for j in range(len(kmeans.cluster_centers_)):
-            if np.linalg.norm(kmeans.cluster_centers_[i] - kmeans.cluster_centers_[j]) < diameter and i != j:
-                diameter = np.linalg.norm(kmeans.cluster_centers_[i] - kmeans.cluster_centers_[j])
+        distance, _ = kdtree.query(kmeans.cluster_centers_[i], k=2)
+        if distance[1] < diameter:
+            diameter = distance[1]
     return diameter / 2
 
 def check_clusters_are_mutually_exclusive(kmeans, radius):
@@ -224,15 +215,13 @@ def check_all_points_have_cluster(points, kmeans, radius):
         - radius (float): Radius of each cluster
     Outputs: True if clusters are mutually exclusive, False if not
     """
+    points_without_cluster = 0
     for i in range(len(points)):
-        num_clusters_belonging = 0
-        for j in range(len(kmeans.cluster_centers_)):
-            # If the point falls within the radius of a point that is not its assigned cluster, the clustering is not valid
-            if np.linalg.norm(points[i] - kmeans.cluster_centers_[j]) <= radius:
-                num_clusters_belonging += 1
-        if num_clusters_belonging == 0:
-            return False
-    return True
+        assigned_cluster = kmeans.labels_[i]
+        if np.linalg.norm(points[i] - kmeans.cluster_centers_[assigned_cluster]) > radius:
+            points_without_cluster += 1
+    print("There are %d points without a cluster" % (points_without_cluster))
+    return points_without_cluster == 0
 
 def get_average_number_of_detections(points, kmeans, radius, timesteps):
     """
@@ -251,6 +240,32 @@ def get_average_number_of_detections(points, kmeans, radius, timesteps):
                 detection_count[i] += 1
     return detection_count / timesteps
 
+def merge_close_clusters(kmeans, distance_threshold):
+    merged = True
+    new_centroids = kmeans.cluster_centers_
+    while merged:
+        n = len(new_centroids)
+        merged = False
+        for i in range(n):
+            for j in range(i + 1, n):
+                distance = np.linalg.norm(new_centroids[i] - new_centroids[j])
+                if distance < distance_threshold:
+                    average_point = np.mean((new_centroids[i], new_centroids[j]), axis=0)
+                    new_centroids = np.delete(new_centroids, [i, j], axis=0)
+                    new_centroids = np.vstack([new_centroids, average_point])
+                    print("Merging clusters to form (%f, %f)" % (average_point[0], average_point[1]))
+                    merged = True
+                    break
+            if merged:
+                break
+    return new_centroids
+
+def get_average_distance_between_points(points):
+    tree = KDTree(points)
+    distances, _ = tree.query(points, k=2)
+    closest_distances = distances[:, 1]
+    return np.mean(closest_distances)
+
 def load_lidar_data(dataset_path, frame_limit=np.inf):
     lidar_files = [file for file in os.listdir(os.path.join(dataset_path, "velodyne"))]
     # Get the bounding box of the annotation target (Should be in the first annotation in the dataset)
@@ -258,14 +273,10 @@ def load_lidar_data(dataset_path, frame_limit=np.inf):
     with open(os.path.join(dataset_path, "label_2", annotation_file)) as f:
         annotation = f.readline().strip().split()
     length, width, height, x, y, z, yaw = np.asarray(annotation[8:], dtype=float)
+    kitti_rotation = R.from_euler("zyx", (0.0, 90.0, -90.0), degrees=True)
+    rotated_center = kitti_rotation.apply([x, y, z])
     # Rotation matrix for yaw angle of the bounding box
-    cos_yaw = np.cos(-yaw)
-    sin_yaw = np.sin(-yaw)
-    rotation_matrix = np.array([
-        [cos_yaw, -sin_yaw, 0],
-        [sin_yaw, cos_yaw, 0],
-        [0, 0, 1]
-    ])
+    yaw_rotation = R.from_euler('z', yaw)
     # Store points that fall within the first engineering target annotated
     point_clouds = []
     iterations = 0
@@ -276,22 +287,38 @@ def load_lidar_data(dataset_path, frame_limit=np.inf):
         # Load point cloud and remove intensity field
         point_cloud = np.delete(np.fromfile(lidar_file_path, dtype=np.float32).reshape(-1, 4), 3, axis=1)
         # Translate point cloud relative to the bounding box center
-        translated_points = point_cloud - np.array([x, y, z])
+        translated_points = point_cloud - rotated_center
         # Rotate points using the yaw angle of the bounding box
-        rotated_points = translated_points @ rotation_matrix.T
+        rotated_points = yaw_rotation.apply(translated_points)
          # Compute bounding box boundaries in local frame
-        x_min, x_max = -length / 2, length / 2
-        y_min, y_max = -width / 2, width / 2
-        z_min, z_max = -height / 2, height / 2
+        x_min, x_max = -width , width
+        y_min, y_max = -length / 2 + 0.2, length / 2 - 0.2
+        z_min, z_max = -height / 2 + 0.2, height / 2 - 0.2
         # Filter points within the boundaries
         mask = (
             (rotated_points[:, 0] >= x_min) & (rotated_points[:, 0] <= x_max) &
             (rotated_points[:, 1] >= y_min) & (rotated_points[:, 1] <= y_max) &
             (rotated_points[:, 2] >= z_min) & (rotated_points[:, 2] <= z_max)
         )
-        point_clouds.append(point_cloud[mask, 1:])
+        point_clouds.append(cartesian_to_spherical(point_cloud[mask]))
         iterations += 1
     return point_clouds
+
+def cartesian_to_spherical(points):
+    x = points[:, 0]
+    y = points[:, 1]
+    z = points[:, 2]
+
+    # Compute azimuth (lateral angle in XY-plane)
+    azimuth = np.arctan2(y, x)
+
+    # Compute elevation (vertical angle from the XY-plane)
+    elevation = np.arctan2(z, x)
+
+    # Combine results into a single array
+    spherical_coords = np.column_stack((azimuth, elevation))
+    return spherical_coords
+
 
 if __name__ == "__main__":
     # Set random seed to keep results consistent
@@ -301,4 +328,4 @@ if __name__ == "__main__":
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
     argdict : dict = vars(args)
-    main(argdict["dataset_path"], save_progress=True)
+    main(argdict["dataset_path"], save_progress=False)
