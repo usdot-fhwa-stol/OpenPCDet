@@ -78,12 +78,34 @@ def cvat_to_openpcdet(pcd_path, json_path, params_path, dataset_root):
             object_name = "Target" if annotation["label_id"] else "Pedestrian"
             object_center = annotation["position"]
             object_dims = annotation["scale"]
-            yaw = annotation["rotation"][2]
             # Apply rotation to bounding box
+            yaw =  annotation["rotation"][2]
+            yaw_quaternion = R.from_euler("z", yaw)
+            rotation_quaternion = rot * yaw_quaternion
+            # Compute the corners of the bounding box relative to the center
             length, width, height = object_dims
+            box_corners = object_center + np.array([
+                [ length / 2,  width / 2,  height / 2],
+                [ length / 2,  width / 2, -height / 2],
+                [ length / 2, -width / 2,  height / 2],
+                [ length / 2, -width / 2, -height / 2],
+                [-length / 2,  width / 2,  height / 2],
+                [-length / 2,  width / 2, -height / 2],
+                [-length / 2, -width / 2,  height / 2],
+                [-length / 2, -width / 2, -height / 2]
+            ])
+            rotated_corners = rotation_quaternion.apply(box_corners)
+            # Convert corners back to original representation
+            rotated_center = np.mean(rotated_corners, axis=0)
+            min_coords = np.min(rotated_corners, axis=0)
+            max_coords = np.max(rotated_corners, axis=0)
+            new_width = max_coords[0] - min_coords[0]  # Extent along x-axis
+            new_length = max_coords[1] - min_coords[1]   # Extent along y-axis
+            new_height = max_coords[2] - min_coords[2]  # Extent along z-axis
+            # Apply rotation to bounding box
             rotated_center = rot.apply(object_center)
             annotation_string += "%s 0.0 0 0 0 0 50 50 %0.2f %0.2f %0.2f %0.2f %0.2f %0.2f %0.2f\n" % \
-                                (object_name, height, width, length, 
+                                (object_name, new_height, new_width, new_length, 
                                  -rotated_center[1], -rotated_center[2], rotated_center[0], -yaw)
         with open(os.path.join(dataset_root, "label_2", "{:06d}.txt".format(int(frame_name))), "w") as f:
             f.write(annotation_string)

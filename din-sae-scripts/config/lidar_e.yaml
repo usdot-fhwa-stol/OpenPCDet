@@ -1,0 +1,2 @@
+# Transformation to apply to the point cloud and annotations
+rotation: [ 180.0, -90.0, 0.0 ] # roll pitch yaw in degrees
