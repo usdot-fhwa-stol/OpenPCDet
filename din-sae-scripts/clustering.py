@@ -12,9 +12,7 @@ def main(dataset_path, save_progress=False):
     """
     Run clustering
     Inputs:
-        - x_step (float): The spacing used to generate simulated LiDAR points along the x-axis
-        - y_step (float): The spacing used to generate simulated LiDNone points along the y-axis
-        - timesteps (int): The number of LiDAR frames
+        - dataset_path (str): The path to the LiDAR dataset (if none is provided, simulated points are generated)
         - save_progress (bool): Flag to save PNG images for each iteration of the clustering process
     """
     # Create simulate point cloud in elevation vs. azimuth plane
@@ -64,11 +62,9 @@ def main(dataset_path, save_progress=False):
                 ax.plot(points[i][:,0], points[i][:,1], '.', c=colors[i])
             ax.set_ylabel("Elevation (deg)")
             ax.set_xlabel("Azimuth (deg)")
-            ax.set_title("Time: %d" % (i))
             ax.set_aspect('equal')
             ax.legend(loc="upper center", ncol=2)
             plt.savefig("%04d.png" % (count))
-            plt.show()
             plt.close()
         count += 1
     # Check that clusters are mutually exclusive and all points belong to a cluster
@@ -86,7 +82,6 @@ def main(dataset_path, save_progress=False):
         ax.plot(points[i][:,0], points[i][:,1], '.', c=colors[i])
     ax.set_ylabel("Elevation (deg)")
     ax.set_xlabel("Azimuth (deg)")
-    ax.set_title("Time: %d" % (i))
     ax.set_aspect('equal')
     ax.legend(loc="upper center", ncol=2)
     plt.show()
@@ -241,6 +236,13 @@ def get_average_number_of_detections(points, kmeans, radius, timesteps):
     return detection_count / timesteps
 
 def merge_close_clusters(kmeans, distance_threshold):
+    """
+    Merge clusters if they are less than a distance threshold away
+    Inputs:
+        - kmeans (sklearn.cluster.KMeans): KMeans object
+        - distance_threshold (float): Distance threshold to merge clusters
+    Output: New centroids with merged clusters
+    """
     merged = True
     new_centroids = kmeans.cluster_centers_
     while merged:
@@ -261,12 +263,25 @@ def merge_close_clusters(kmeans, distance_threshold):
     return new_centroids
 
 def get_average_distance_between_points(points):
+    """
+    Get the average distance between LiDAR points
+    Inputs:
+        - points (np.ndarray): LiDAR points
+    Output: The average euclidean distance between each point and its closest neighbor
+    """
     tree = KDTree(points)
     distances, _ = tree.query(points, k=2)
     closest_distances = distances[:, 1]
     return np.mean(closest_distances)
 
 def load_lidar_data(dataset_path, frame_limit=np.inf):
+    """
+    Load LiDAR data from a directory and convert it to azimuth/elevation
+    Inputs:
+        - dataset_path (str): A path to a directory containing KITTI-formatted data
+        - frame_limit (int): The number of frames to load (if unspecified, all frames will be loaded)
+    Output: The LiDAR data in azimuth vs. elevation format
+    """
     lidar_files = [file for file in os.listdir(os.path.join(dataset_path, "velodyne"))]
     # Get the bounding box of the annotation target (Should be in the first annotation in the dataset)
     annotation_file = sorted(file for file in os.listdir(os.path.join(dataset_path, "label_2")))[0]
@@ -305,6 +320,12 @@ def load_lidar_data(dataset_path, frame_limit=np.inf):
     return point_clouds
 
 def cartesian_to_spherical(points):
+    """
+    Convert points cartesian coordinates to spherical (azimuth + elevation)
+    Inputs:
+        - points (np.ndarray): LiDAR points in xyz format
+    Output: LiDAR points in azimuth + elevation format
+    """
     x = points[:, 0]
     y = points[:, 1]
     z = points[:, 2]
@@ -328,4 +349,4 @@ if __name__ == "__main__":
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
     argdict : dict = vars(args)
-    main(argdict["dataset_path"], save_progress=False)
+    main(argdict["dataset_path"], save_progress=True)
