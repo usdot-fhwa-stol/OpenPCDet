@@ -15,7 +15,6 @@ def main(dataset_path, save_progress=False):
         - dataset_path (str): The path to the LiDAR dataset (if none is provided, simulated points are generated)
         - save_progress (bool): Flag to save PNG images for each iteration of the clustering process
     """
-    # Create simulate point cloud in elevation vs. azimuth plane
     if dataset_path:
         points = load_lidar_data(dataset_path)
     else:
@@ -25,12 +24,8 @@ def main(dataset_path, save_progress=False):
     cluster_centroids = get_largest_frame(points)
     # Combine point clouds across all frames into a single 2D array
     flattened_points = np.vstack(points)
-    # Get average spacing between points
-    average_distance = get_average_distance_between_points(points[0])
     # Run Kmeans clustering to tune the centroids
     kmeans = determine_clusters(cluster_centroids, flattened_points, len(cluster_centroids))
-    # new_centroids = merge_close_clusters(kmeans, average_distance * 0.8)
-    # kmeans = determine_clusters(new_centroids, flattened_points, len(new_centroids))
     count = 0  # Variable used for creating visualizatons
     finished = False
     while not finished:
@@ -126,7 +121,7 @@ def get_largest_frame(points):
     """
     Get the LiDAR frame with the most points
     Inputs:
-        - points (list(np.ndarray)): The simulated LiDAR points
+        - points (list(np.ndarray)): The LiDAR points
     Output: The frame with the most points
     """
     largest_frame = None
@@ -205,10 +200,10 @@ def check_all_points_have_cluster(points, kmeans, radius):
     """
     Check to ensure all LiDAR points belong to a cluster
     Inputs:
-        - points (np.ndarray): The simulated LiDAR points
+        - points (np.ndarray): The LiDAR points
         - kmeans (sklearn.cluster.KMeans): KMeans object with cluster radius
         - radius (float): Radius of each cluster
-    Outputs: True if clusters are mutually exclusive, False if not
+    Outputs: True if all points have a cluster, False if not
     """
     points_without_cluster = 0
     for i in range(len(points)):
@@ -222,7 +217,7 @@ def get_average_number_of_detections(points, kmeans, radius, timesteps):
     """
     Get the average number of detections for each cluster
     Inputs:
-        - points (np.ndarray): The simulated LiDAR points
+        - points (np.ndarray): The LiDAR points
         - kmeans (sklearn.cluster.KMeans): KMeans object with cluster radius
         - radius (float): Radius of each cluster
         - timesteps (int): The number of timesteps
@@ -234,45 +229,6 @@ def get_average_number_of_detections(points, kmeans, radius, timesteps):
             if np.linalg.norm(kmeans.cluster_centers_[i] - point) < radius:
                 detection_count[i] += 1
     return detection_count / timesteps
-
-def merge_close_clusters(kmeans, distance_threshold):
-    """
-    Merge clusters if they are less than a distance threshold away
-    Inputs:
-        - kmeans (sklearn.cluster.KMeans): KMeans object
-        - distance_threshold (float): Distance threshold to merge clusters
-    Output: New centroids with merged clusters
-    """
-    merged = True
-    new_centroids = kmeans.cluster_centers_
-    while merged:
-        n = len(new_centroids)
-        merged = False
-        for i in range(n):
-            for j in range(i + 1, n):
-                distance = np.linalg.norm(new_centroids[i] - new_centroids[j])
-                if distance < distance_threshold:
-                    average_point = np.mean((new_centroids[i], new_centroids[j]), axis=0)
-                    new_centroids = np.delete(new_centroids, [i, j], axis=0)
-                    new_centroids = np.vstack([new_centroids, average_point])
-                    print("Merging clusters to form (%f, %f)" % (average_point[0], average_point[1]))
-                    merged = True
-                    break
-            if merged:
-                break
-    return new_centroids
-
-def get_average_distance_between_points(points):
-    """
-    Get the average distance between LiDAR points
-    Inputs:
-        - points (np.ndarray): LiDAR points
-    Output: The average euclidean distance between each point and its closest neighbor
-    """
-    tree = KDTree(points)
-    distances, _ = tree.query(points, k=2)
-    closest_distances = distances[:, 1]
-    return np.mean(closest_distances)
 
 def load_lidar_data(dataset_path, frame_limit=np.inf):
     """
@@ -288,6 +244,8 @@ def load_lidar_data(dataset_path, frame_limit=np.inf):
     with open(os.path.join(dataset_path, "label_2", annotation_file)) as f:
         annotation = f.readline().strip().split()
     length, width, height, x, y, z, yaw = np.asarray(annotation[8:], dtype=float)
+    # Kitti camera-coordinates to LiDAR-coordinates rotation
+    # See Figure 1: https://towardsdatascience.com/kitti-coordinate-transformations-125094cd42fb
     kitti_rotation = R.from_euler("zyx", (0.0, 90.0, -90.0), degrees=True)
     rotated_center = kitti_rotation.apply([x, y, z])
     # Rotation matrix for yaw angle of the bounding box
