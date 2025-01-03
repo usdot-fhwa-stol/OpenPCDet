@@ -25,7 +25,7 @@ def cvat_to_openpcdet(pcd_path, json_path, params_path, dataset_root):
     ## Sort pcd files by file name
     pcd_files.sort()   
 
-    ## Make bin_path directory
+    ## Make velodyne directory
     if not (os.path.isdir(os.path.join(dataset_root, "velodyne"))):
         os.makedirs(os.path.join(dataset_root, "velodyne"))
     
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     parser.add_argument("pcd_path", type=str, help="Path to directory containing PCD files")
     parser.add_argument("json_path", type=str, help="Path to Json file containing annotations from CVAT")
     parser.add_argument("params_path", type=str, help="Path to params file for the LiDAR sensor")
-    parser.add_argument("dataset_root", type=str, help="Root directory to write dataset to")
+    parser.add_argument("dataset_root", type=str, help="Root directory to write KITTI-formatted dataset to")
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
     argdict : dict = vars(args)
