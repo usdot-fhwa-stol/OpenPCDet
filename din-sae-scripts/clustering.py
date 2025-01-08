@@ -239,7 +239,7 @@ def load_lidar_data(dataset_path, frame_limit=np.inf):
     Output: The LiDAR data in azimuth vs. elevation format
     """
     lidar_files = [file for file in os.listdir(os.path.join(dataset_path, "velodyne"))]
-    # Get the bounding box of the annotation target (Should be in the first annotation in the dataset)
+    # Get the bounding box of the annotated engineering target (Should be the first annotation in the dataset)
     annotation_file = sorted(file for file in os.listdir(os.path.join(dataset_path, "label_2")))[0]
     with open(os.path.join(dataset_path, "label_2", annotation_file)) as f:
         annotation = f.readline().strip().split()
@@ -304,7 +304,8 @@ if __name__ == "__main__":
     np.random.seed(42)
     parser = argparse.ArgumentParser(description="Perform clustering according to the DIN SAE Spec on LiDAR data")
     parser.add_argument("--dataset_path", default="", help="Path to an annotated dataset")
+    parser.add_argument("--save_progress", action="store_true", help="Whether or not to save PNG images of each clustering step")
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
     argdict : dict = vars(args)
-    main(argdict["dataset_path"], save_progress=True)
+    main(argdict["dataset_path"], save_progress=argdict["save_progress"])
