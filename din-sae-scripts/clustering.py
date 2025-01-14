@@ -265,8 +265,8 @@ def load_lidar_data(dataset_path, frame_limit=np.inf):
         rotated_points = yaw_rotation.apply(translated_points)
          # Compute bounding box boundaries in local frame
         x_min, x_max = -width , width
-        y_min, y_max = -length / 2 + 0.2, length / 2 - 0.2
-        z_min, z_max = -height / 2 + 0.2, height / 2 - 0.2
+        y_min, y_max = -length / 2, length / 2
+        z_min, z_max = -height / 2, height / 2
         # Filter points within the boundaries
         mask = (
             (rotated_points[:, 0] >= x_min) & (rotated_points[:, 0] <= x_max) &
